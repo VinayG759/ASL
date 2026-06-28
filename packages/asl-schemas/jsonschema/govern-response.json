@@ -1,0 +1,87 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asl.local/schemas/govern-response.json",
+  "title": "GovernResponse",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "decision",
+    "decision_id",
+    "policy_version",
+    "risk_tier",
+    "reason",
+    "reason_code"
+  ],
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["ALLOW", "DENY", "ESCALATE"]
+    },
+    "decision_id": {
+      "type": "string",
+      "pattern": "^dec_"
+    },
+    "policy_version": {
+      "type": "string"
+    },
+    "risk_tier": {
+      "type": "string",
+      "enum": ["READ", "WRITE", "DESTRUCTIVE", "CRITICAL"]
+    },
+    "reason": {
+      "type": "string"
+    },
+    "reason_code": {
+      "type": "string",
+      "enum": [
+        "POLICY_ALLOW",
+        "POLICY_DENY",
+        "POLICY_ESCALATE",
+        "UNCLASSIFIED_ESCALATE",
+        "UNCLASSIFIED_DENY",
+        "APPROVAL_APPROVED",
+        "APPROVAL_REJECTED",
+        "APPROVAL_EXPIRED",
+        "STUB_RESPONSE"
+      ]
+    },
+    "approval_id": {
+      "type": "string",
+      "pattern": "^apr_"
+    },
+    "poll_url": {
+      "type": "string"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  },
+  "examples": [
+    {
+      "schema_version": "1.0",
+      "decision": "ALLOW",
+      "decision_id": "dec_01HXYZ",
+      "policy_version": "v1",
+      "risk_tier": "WRITE",
+      "reason": "Matched rule: WRITE → ALLOW for trusted agents",
+      "reason_code": "POLICY_ALLOW"
+    },
+    {
+      "schema_version": "1.0",
+      "decision": "ESCALATE",
+      "decision_id": "dec_01HABC",
+      "policy_version": "v1",
+      "risk_tier": "DESTRUCTIVE",
+      "reason": "Matched rule: DESTRUCTIVE → ESCALATE",
+      "reason_code": "POLICY_ESCALATE",
+      "approval_id": "apr_01HABC",
+      "poll_url": "/api/v1/govern/decisions/dec_01HABC/status",
+      "expires_at": "2026-06-28T10:05:00Z"
+    }
+  ]
+}

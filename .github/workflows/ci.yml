@@ -1,0 +1,64 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+defaults:
+  run:
+    working-directory: apps/api
+
+jobs:
+  lint-and-typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Ruff
+        run: ruff check src ../../tests
+      - name: Mypy
+        run: mypy src
+      - name: Import linter
+        run: lint-imports
+
+  test:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: asl
+          POSTGRES_PASSWORD: asl_dev_password
+          POSTGRES_DB: asl
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U asl -d asl"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+asyncpg://asl:asl_dev_password@localhost:5432/asl
+      DATABASE_URL_SYNC: postgresql+psycopg://asl:asl_dev_password@localhost:5432/asl
+      ASL_API_KEY: test_api_key_for_ci
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: apps/api/pyproject.toml
+      - name: Install dependencies
+        run: pip install -e ".[dev]"
+      - name: Apply migrations
+        run: alembic upgrade head
+      - name: Pytest
+        working-directory: .
+        run: pytest tests -v

@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://asl.local/schemas/policy-v1.json",
+  "title": "ASLPolicyV1",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "version",
+    "default_unclassified",
+    "rules"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1.0"
+    },
+    "version": {
+      "type": "string",
+      "pattern": "^v[0-9]+$"
+    },
+    "metadata": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" }
+      }
+    },
+    "tool_classifications": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "enum": ["READ", "WRITE", "DESTRUCTIVE", "CRITICAL"]
+      }
+    },
+    "default_unclassified": {
+      "type": "string",
+      "enum": ["DENY", "ESCALATE", "ALLOW"],
+      "description": "SEC-01: prefer ESCALATE or DENY; never ALLOW in production without review"
+    },
+    "rules": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["name", "when", "then"],
+        "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "when": {
+            "type": "object",
+            "properties": {
+              "risk_tier": {
+                "oneOf": [
+                  {
+                    "type": "string",
+                    "enum": ["READ", "WRITE", "DESTRUCTIVE", "CRITICAL"]
+                  },
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "enum": ["READ", "WRITE", "DESTRUCTIVE", "CRITICAL"]
+                    },
+                    "minItems": 1
+                  }
+                ]
+              },
+              "session_rejection_count_gte": {
+                "type": "integer",
+                "minimum": 1
+              }
+            }
+          },
+          "then": {
+            "type": "string",
+            "enum": ["ALLOW", "DENY", "ESCALATE"]
+          }
+        }
+      }
+    },
+    "fail_mode": {
+      "type": "object",
+      "properties": {
+        "default": {
+          "type": "string",
+          "enum": ["fail-open", "fail-closed"]
+        },
+        "per_tier": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string",
+            "enum": ["fail-open", "fail-closed"]
+          }
+        }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "properties": {
+        "default_ttl_seconds": {
+          "type": "integer",
+          "minimum": 30
+        },
+        "routing": {
+          "type": "object",
+          "additionalProperties": { "type": "string" }
+        }
+      }
+    }
+  }
+}

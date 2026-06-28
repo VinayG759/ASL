@@ -1,0 +1,569 @@
+openapi: 3.1.0
+info:
+  title: Agentic Safety Layer API
+  version: 1.0.0
+  description: |
+    External governance control plane for agent tool calls.
+
+    **v0 scope:** `POST /govern/tool-use`, `GET /health`, and approval endpoints are
+    documented; policy management, audit query, and admin key APIs are deferred.
+
+    ## Reason codes
+
+    | Code | Meaning |
+    |------|---------|
+    | `POLICY_ALLOW` | Rule matched → ALLOW |
+    | `POLICY_DENY` | Rule matched → DENY |
+    | `POLICY_ESCALATE` | Rule matched → ESCALATE |
+    | `UNCLASSIFIED_ESCALATE` | Tool not in policy classifications; `default_unclassified` applied |
+    | `UNCLASSIFIED_DENY` | Unclassified tool denied by policy default |
+    | `APPROVAL_APPROVED` | Escalation resolved → execute |
+    | `APPROVAL_REJECTED` | Human rejected escalated action |
+    | `APPROVAL_EXPIRED` | Approval TTL elapsed |
+    | `STUB_RESPONSE` | Phase 0 placeholder (removed in Phase 1) |
+
+servers:
+  - url: /api/v1
+    description: Versioned API prefix
+
+tags:
+  - name: health
+    description: Liveness and readiness probes
+  - name: govern
+    description: Synchronous tool-use governance (runtime-facing)
+  - name: approvals
+    description: Human-in-the-loop escalation (operator-facing)
+
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      tags: [health]
+      summary: Liveness probe
+      security: []
+      responses:
+        "200":
+          description: Service is alive
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthResponse"
+
+  /govern/tool-use:
+    post:
+      operationId: governToolUse
+      tags: [govern]
+      summary: Evaluate a tool call synchronously
+      description: |
+        Returns ALLOW, DENY, or ESCALATE before the runtime executes the tool.
+        v0 Phase 0 returns a stub response; policy engine ships in Phase 1.
+      security:
+        - bearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/RequestId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GovernRequest"
+            examples:
+              updateTicket:
+                summary: WRITE tool call
+                value:
+                  schema_version: "1.0"
+                  tool: update_ticket
+                  arguments:
+                    ticket_id: T-123
+                    status: resolved
+                  agent_id: nexusflow/support-agent
+                  session_id: sess_abc123
+                  timestamp: "2026-06-28T10:00:00Z"
+                  principal:
+                    type: user
+                    id: "user:U42"
+                  delegation_chain:
+                    - agent_id: orchestrator
+                      role: orchestrator
+                    - agent_id: support-agent
+                      role: executor
+                  metadata:
+                    runtime: nexusflow
+                    framework_version: "1.2.0"
+      responses:
+        "200":
+          description: Policy decision (ALLOW or ESCALATE)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GovernResponse"
+        "400":
+          $ref: "#/components/responses/ValidationError"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: Policy DENY or insufficient scope
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: "#/components/schemas/GovernDenyResponse"
+                  - $ref: "#/components/schemas/ErrorResponse"
+        "503":
+          $ref: "#/components/responses/ServiceUnavailable"
+
+  /govern/decisions/{decision_id}/status:
+    get:
+      operationId: getDecisionStatus
+      tags: [govern]
+      summary: Poll escalation resolution status
+      description: Deferred implementation detail in Phase 1; route exists for contract stability.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: decision_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^dec_"
+      responses:
+        "200":
+          description: Escalation status
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DecisionStatusResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /approvals:
+    get:
+      operationId: listApprovals
+      tags: [approvals]
+      summary: List pending approvals
+      description: v0 may be queried via `scripts/approve.py` instead of this endpoint.
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING, APPROVED, REJECTED, EXPIRED]
+            default: PENDING
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: offset
+          in: query
+          schema:
+            type: integer
+            minimum: 0
+            default: 0
+      responses:
+        "200":
+          description: Paginated approval list
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalListResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /approvals/{approval_id}/approve:
+    post:
+      operationId: approveRequest
+      tags: [approvals]
+      summary: Approve an escalated action
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: approval_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^apr_"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalActionRequest"
+      responses:
+        "200":
+          description: Approval recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalActionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+  /approvals/{approval_id}/reject:
+    post:
+      operationId: rejectRequest
+      tags: [approvals]
+      summary: Reject an escalated action
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: approval_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: "^apr_"
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovalActionRequest"
+      responses:
+        "200":
+          description: Rejection recorded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApprovalActionResponse"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      description: API key passed as Bearer token (`ASL_API_KEY` in v0)
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: false
+      schema:
+        type: string
+        maxLength: 128
+      description: Dedup window 24h; recommended for all govern calls
+    RequestId:
+      name: X-Request-ID
+      in: header
+      required: false
+      schema:
+        type: string
+      description: Echoed in error responses when provided
+
+  responses:
+    ValidationError:
+      description: Malformed request body
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Request body failed validation
+              details: []
+              request_id: req_example
+    Unauthorized:
+      description: Missing or invalid API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: Invalid or missing API key
+              details: []
+              request_id: req_example
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    Conflict:
+      description: Concurrent resolution conflict
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+    ServiceUnavailable:
+      description: Dependency unreachable; runtimes apply fail-mode
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ErrorResponse"
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, schema_version]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        schema_version:
+          type: string
+          const: "1.0"
+
+    GovernRequest:
+      type: object
+      required:
+        - schema_version
+        - tool
+        - arguments
+        - agent_id
+        - session_id
+        - timestamp
+        - principal
+      properties:
+        schema_version:
+          type: string
+          const: "1.0"
+          description: Govern request schema version (TD-08)
+        tool:
+          type: string
+          minLength: 1
+          maxLength: 256
+        arguments:
+          type: object
+          additionalProperties: true
+        agent_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        session_id:
+          type: string
+          minLength: 1
+          maxLength: 128
+        timestamp:
+          type: string
+          format: date-time
+          description: Client timestamp; server `received_at` is authoritative (DC-09)
+        principal:
+          $ref: "#/components/schemas/Principal"
+        delegation_chain:
+          type: array
+          items:
+            $ref: "#/components/schemas/DelegationHop"
+          default: []
+        metadata:
+          type: object
+          additionalProperties: true
+          default: {}
+
+    Principal:
+      type: object
+      required: [type, id]
+      properties:
+        type:
+          type: string
+          enum: [user, service, anonymous]
+        id:
+          type: string
+          minLength: 1
+
+    DelegationHop:
+      type: object
+      required: [agent_id]
+      properties:
+        agent_id:
+          type: string
+        role:
+          type: string
+
+    GovernResponse:
+      type: object
+      required:
+        - schema_version
+        - decision
+        - decision_id
+        - policy_version
+        - risk_tier
+        - reason
+        - reason_code
+      properties:
+        schema_version:
+          type: string
+          const: "1.0"
+        decision:
+          type: string
+          enum: [ALLOW, DENY, ESCALATE]
+        decision_id:
+          type: string
+          pattern: "^dec_"
+        policy_version:
+          type: string
+        risk_tier:
+          type: string
+          enum: [READ, WRITE, DESTRUCTIVE, CRITICAL]
+        reason:
+          type: string
+        reason_code:
+          type: string
+          enum:
+            - POLICY_ALLOW
+            - POLICY_DENY
+            - POLICY_ESCALATE
+            - UNCLASSIFIED_ESCALATE
+            - UNCLASSIFIED_DENY
+            - STUB_RESPONSE
+        approval_id:
+          type: string
+          pattern: "^apr_"
+        poll_url:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+
+    GovernDenyResponse:
+      type: object
+      required:
+        - schema_version
+        - decision
+        - decision_id
+        - policy_version
+        - risk_tier
+        - reason
+        - reason_code
+      properties:
+        schema_version:
+          type: string
+          const: "1.0"
+        decision:
+          type: string
+          const: DENY
+        decision_id:
+          type: string
+        policy_version:
+          type: string
+        risk_tier:
+          type: string
+          enum: [READ, WRITE, DESTRUCTIVE, CRITICAL]
+        reason:
+          type: string
+        reason_code:
+          type: string
+          enum: [POLICY_DENY, UNCLASSIFIED_DENY]
+
+    DecisionStatusResponse:
+      type: object
+      required: [schema_version, decision_id, status]
+      properties:
+        schema_version:
+          type: string
+          const: "1.0"
+        decision_id:
+          type: string
+        status:
+          type: string
+          enum: [PENDING, APPROVED, REJECTED, EXPIRED]
+        final_outcome:
+          type: string
+          enum: [ALLOW, DENY]
+        resolved_at:
+          type: string
+          format: date-time
+
+    ApprovalListResponse:
+      type: object
+      required: [schema_version, items, total]
+      properties:
+        schema_version:
+          type: string
+          const: "1.0"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/ApprovalSummary"
+        total:
+          type: integer
+
+    ApprovalSummary:
+      type: object
+      required: [approval_id, decision_id, status, risk_tier, created_at]
+      properties:
+        approval_id:
+          type: string
+        decision_id:
+          type: string
+        status:
+          type: string
+        risk_tier:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+        created_at:
+          type: string
+          format: date-time
+
+    ApprovalActionRequest:
+      type: object
+      properties:
+        approver_id:
+          type: string
+          description: Human identity (required in Phase 1)
+        reason:
+          type: string
+
+    ApprovalActionResponse:
+      type: object
+      required: [schema_version, approval_id, status]
+      properties:
+        schema_version:
+          type: string
+          const: "1.0"
+        approval_id:
+          type: string
+        status:
+          type: string
+          enum: [APPROVED, REJECTED]
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, request_id]
+          properties:
+            code:
+              type: string
+              enum:
+                - VALIDATION_ERROR
+                - UNAUTHORIZED
+                - FORBIDDEN
+                - NOT_FOUND
+                - CONFLICT
+                - POLICY_ERROR
+                - RATE_LIMITED
+                - SERVICE_UNAVAILABLE
+            message:
+              type: string
+            details:
+              type: array
+              items:
+                type: object
+                additionalProperties: true
+            request_id:
+              type: string

@@ -1,0 +1,56 @@
+schema_version: "1.0"
+version: "v1"
+metadata:
+  name: "Default ASL Policy"
+  description: "Baseline rules for NexusFlow — Phase 0 example"
+
+tool_classifications:
+  get_ticket: READ
+  list_tickets: READ
+  update_ticket: WRITE
+  create_ticket: WRITE
+  delete_ticket: DESTRUCTIVE
+  purge_database: CRITICAL
+
+default_unclassified: ESCALATE
+
+rules:
+  - name: "Allow reads"
+    when:
+      risk_tier: READ
+    then: ALLOW
+
+  - name: "Allow writes"
+    when:
+      risk_tier: WRITE
+    then: ALLOW
+
+  - name: "Escalate destructive"
+    when:
+      risk_tier: DESTRUCTIVE
+    then: ESCALATE
+
+  - name: "Escalate critical"
+    when:
+      risk_tier: CRITICAL
+    then: ESCALATE
+
+  - name: "Deny after repeated rejections"
+    when:
+      risk_tier: [WRITE, DESTRUCTIVE]
+      session_rejection_count_gte: 3
+    then: DENY
+
+fail_mode:
+  default: fail-closed
+  per_tier:
+    READ: fail-open
+    WRITE: fail-closed
+    DESTRUCTIVE: fail-closed
+    CRITICAL: fail-closed
+
+approval:
+  default_ttl_seconds: 300
+  routing:
+    DESTRUCTIVE: team_lead
+    CRITICAL: admin

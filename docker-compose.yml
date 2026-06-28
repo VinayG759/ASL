@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-asl}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-asl_dev_password}
+      POSTGRES_DB: ${POSTGRES_DB:-asl}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-asl} -d ${POSTGRES_DB:-asl}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-asl}:${POSTGRES_PASSWORD:-asl_dev_password}@postgres:5432/${POSTGRES_DB:-asl}
+      DATABASE_URL_SYNC: postgresql+psycopg://${POSTGRES_USER:-asl}:${POSTGRES_PASSWORD:-asl_dev_password}@postgres:5432/${POSTGRES_DB:-asl}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn asl.main:app --host 0.0.0.0 --port 8000"
+
+volumes:
+  postgres_data:

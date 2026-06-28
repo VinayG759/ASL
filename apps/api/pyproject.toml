@@ -1,0 +1,80 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "asl-api"
+version = "0.1.0"
+description = "Agentic Safety Layer — governance API"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.32.0",
+    "pydantic>=2.9.0",
+    "pydantic-settings>=2.6.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "psycopg[binary]>=3.2.0",
+    "alembic>=1.14.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "httpx>=0.28.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "import-linter>=2.1",
+    "jsonschema>=4.23.0",
+    "pyyaml>=6.0.2",
+    "openapi-spec-validator>=0.7.0",
+    "types-PyYAML",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/asl"]
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+src = ["src", "../../tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.11"
+strict = true
+packages = ["asl"]
+mypy_path = "src"
+
+[[tool.mypy.overrides]]
+module = ["alembic.*"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.importlinter]
+root_package = "asl"
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Engine has no framework or persistence imports"
+type = "forbidden"
+source_modules = ["asl.engine"]
+forbidden_modules = [
+    "fastapi",
+    "sqlalchemy",
+    "asl.persistence",
+    "asl.api",
+]
+
+[[tool.importlinter.contracts]]
+name = "API layer does not access persistence directly"
+type = "forbidden"
+source_modules = ["asl.api"]
+forbidden_modules = ["asl.persistence"]

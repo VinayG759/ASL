@@ -1,0 +1,14 @@
+# Development overrides — hot reload without rebuilding the image on every change.
+# Usage: docker compose -f docker-compose.yml -f docker-compose.dev.yml up
+
+services:
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    volumes:
+      - ./apps/api/src:/app/src:ro
+      - ./apps/api/alembic:/app/alembic:ro
+    command: >
+      sh -c "alembic upgrade head &&
+             uvicorn asl.main:app --host 0.0.0.0 --port 8000 --reload --reload-dir /app/src"
